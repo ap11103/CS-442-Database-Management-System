@@ -1,0 +1,212 @@
+CS 442 Assignment 2
+Alisha Patel
+CWID: 20006391
+
+QUERY 1:
+
+--Query 1: For each customer, prod, and month, count the number of sales
+-- that were between previous and following month's average sales quantities
+-- use NULL for january and december 
+
+--Q1: compute avg for cust, prod, and month
+WITH Q1 as (
+	select cust, prod, month, avg(quant) as AVG_QUANT
+	from sales
+	group by cust, prod, month),
+	
+--Q2: using Q1 compute avg (cust, prod, month - 1)
+Q2 as (
+	select s.cust, s.prod, s.month, s.quant, Q1.AVG_QUANT as FOLLOW_Q
+	from sales s
+	left join Q1 on s.cust = Q1.cust and s.prod = Q1.prod and s.month = Q1.month-1),
+	
+--Q3: using Q2 compute avg(cust, prod, month + 1)
+Q3 as (
+	select Q2.cust, Q2.prod, Q2.month, Q1.AVG_QUANT as PREVIOUS_Q, Q2.QUANT, Q2.FOLLOW_Q
+	from Q2
+	left join Q1 on Q2.cust = Q1.cust and Q2.prod = Q1.prod and Q2.month = Q1.month+1),
+
+--Q4: Compute count between previous and following avgs
+Q4 as (
+	select cust, prod, month, count(quant) as COUNT_Q
+	from Q3
+	where quant between PREVIOUS_Q and FOLLOW_Q or 
+		quant between FOLLOW_Q and PREVIOUS_Q
+	group by cust, prod, month),
+
+--Q5: base table
+Q5 as (
+	select cust, prod, month
+	from sales s
+	group by cust, prod, month)
+
+select Q5.cust as CUSTOMER, Q5.prod as PRODUCT, Q5.month as MONTH, Q4.COUNT_Q AS SALES_COUNT_BETWEEN_AVERAGES
+from Q5
+left join Q4 ON Q5.cust = Q4.cust and Q5.prod = Q4.prod and Q5.month = Q4.month
+order by Q5.cust, Q5.prod, Q5.month
+
+QUERY 2:
+
+--Query 2: For each cust, prod, show the avg sales before, during, and after each month
+-- for before Jan -> NULL and after Dec -> NULL
+-- Year attribute is not considered for this query
+--Subquery for Query 1 (first three)
+
+--Q1: compute avg for cust, prod, and month
+WITH Q1 as (
+	select cust, prod, month, round(avg(quant),0) as AVG_QUANT
+	from sales
+	group by cust, prod, month),
+	
+Q2 as (
+	select Q1.cust, Q1.prod, Q1.month, Q1.AVG_QUANT, t.AVG_QUANT as FOLLOW_AVG
+	from Q1
+	left join Q1 as t on Q1.cust = t.cust and Q1.prod = t.prod and Q1.month = t.month+1), 
+	
+Q3 as (
+	select Q1.cust, Q1.prod, Q1.month, Q1.AVG_QUANT, t.AVG_QUANT AS PREVIOUS_AVG
+	from Q1
+	left join Q1 as t on Q1.cust = t.cust and Q1.prod = t.prod and Q1.month = t.month-1)
+	
+select Q2.cust as CUSTOMER, Q2.prod as PRODUCT, Q2.month as MONTH, PREVIOUS_AVG as BEFORE_AVG,
+	Q2.AVG_QUANT as DURING_AVG, FOLLOW_AVG as AFTER_AVG
+from Q2
+join Q3 on Q2.cust = Q3.cust and Q2.prod = Q3.prod and Q2.month = Q3.month
+order by Q2.cust, Q2.prod, Q2.month
+
+QUERY 3:
+
+--Query 3: For each cust, prod, state combination
+--Q1: compute average sale for this cust for state
+--Q2: average sale of the product and state but for other custs
+--Q3: average sale of the customer for the given state for other prods
+--Q4: customer's avg for the given product, but for other states
+
+--customer/prod avg
+WITH Q1 as (
+	select cust, prod, state, avg(quant) as AVG_Q1
+	from sales
+	group by cust, prod, state), 
+--other customer avg
+Q2 as (
+	select s.cust, s.prod, s.state, avg(t.quant) as AVG_Q2
+	from sales s 
+	left join sales t on s.cust != t.cust and s.prod = t.prod and s.state = t.state
+	group by s.cust, s.prod, s.state), 
+--other product average
+Q3 as (
+	select s.cust, s.prod, s.state, avg(t.quant) as AVG_Q3
+	from sales s
+	left join sales t on s.cust = t.cust and s.prod != t.prod and s.state = t.state
+	group by s.cust, s.prod, s.state), 
+--other state avg
+Q4 as (
+	select s.cust, s.prod, s.state, avg(t.quant) as AVG_Q4
+	from sales s
+	left join sales t on s.cust = t.cust and s.prod = t.prod and s.state != t.state
+	group by s.cust, s.prod, s.state)
+
+select Q1.cust CUSTOMER, Q1.prod PRODUCT, Q1.state STATE, round(Q1.AVG_Q1, 0) PROD_AVG, 
+		round(Q2.AVG_Q2, 0) OTHER_CUST_AVG, round(Q3.AVG_Q3, 0) OTHER_PROD_AVG, round(Q4.AVG_Q4, 0) as OTHER_STATE_AVG
+from Q1
+left join Q2 on Q1.cust = Q2.cust and Q1.prod = Q2.prod and Q1.state = Q2.state
+left join Q3 on Q1.cust = Q3.cust and Q1.prod = Q3.prod and Q1.state = Q3.state
+left join Q4 on Q1.cust = Q4.cust and Q1.prod = Q4.prod and Q1.state = Q4.state
+order by customer, product, state
+
+QUERY 4:
+
+--Query4: For each customer, find top 3 highest quantities purchased in NJ
+--show customer's name, quant, prod purchased and the date of the purchase
+
+--Q1: find the first max quant for customer
+--Q1.5: join with the sales table
+--Q2: find the second max quant for customer
+--Q3: find the third max quant for customer
+--and then join the three max quant for customer
+
+WITH Q1 as (
+	select s.cust, max(s.quant) max_1
+	from sales s
+	where s.state = 'NJ'
+	group by s.cust), 
+
+Q1_5 as (
+	select s.cust, s.quant, s.prod, s.date
+	from sales s
+	join Q1 on Q1.cust = s.cust and s.quant = Q1.max_1 and s.state = 'NJ'), 
+
+Q2 as (
+	select s.cust, max(s.quant) max_2
+	from sales s
+	join Q1 on Q1.cust = s.cust and s.quant != Q1.max_1 and s.state = 'NJ'
+	group by s.cust), 
+
+Q2_5 as (
+	select s.cust, s.quant, s.prod, s.date
+	from sales s
+	join Q2 on s.cust = Q2.cust and s.quant = Q2.max_2 and s.state = 'NJ'),
+
+Q3 as (
+	select s.cust, max(s.quant) max_3
+	from sales s
+	join Q1 on Q1.cust = s.cust and s.quant != Q1.max_1 and s.state = 'NJ'
+	join Q2 on Q2.cust = s.cust and s.state = 'NJ' and s.quant != Q2.max_2
+	group by s.cust),
+	
+Q3_5 as (
+	select s.cust, s.quant, s.prod, s.date
+	from sales s
+	join Q3 on s.cust = Q3.cust and s.quant = Q3.max_3 and s.state = 'NJ')
+--union all the joins 
+select s.cust CUSTOMER, s.quant QUANTITY, s.prod PRODUCT, s.date DATE
+from Q1_5 s
+union all
+select t.cust CUSTOMER, t.quant QUANTITY, t.prod PRODUCT, t.date DATE
+from Q2_5 t
+union all
+select q.cust CUSTOMER, q.quant QUANTITY, q.prod PRODUCT, q.date DATE
+from Q3_5 q
+
+QUERY 5:
+
+--Query 5: for each product, find the median sales quantity 
+--assume an odd number of sales
+--base table for distinct prod, quant
+--join base and sales for relative pos
+--compute median from count of sales
+--for quant values > med
+--compute the med_pos
+--median quant is min() --> output pos.prod and pos.quant
+
+WITH base as (
+	select distinct s.prod, s.quant
+	from sales s
+	order by s.prod, s.quant), 
+	
+pos as (
+	select base.prod, base.quant, count(s.quant) rel_pos
+	from base, sales s
+	where s.prod = base.prod and s.quant <= base.quant
+	group by base.prod, base.quant),
+
+med as (
+	select s.prod, ceiling(count(quant)/2) med_cnt
+	from sales s
+	group by s.prod), 
+
+other_max as (
+	select pos.prod, pos.quant, pos.rel_pos, med.med_cnt
+	from pos natural join med
+	where pos.rel_pos >= med.med_cnt),
+	
+med_pos as (
+	select prod, min(rel_pos) pos
+	from other_max
+	group by other_max.prod)
+
+select p.prod PRODUCT, p.quant MEDIAN_QUANT
+from pos p
+join med_pos m on m.prod = p.prod and m.pos = p.rel_pos
+order by p.prod
+
